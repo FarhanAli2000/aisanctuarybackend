@@ -1,5 +1,4 @@
 const fs = require('fs');
-const { verifyIdCardImages } = require('./verifyIdCard');
 
 const getIdCardFiles = (req) => ({
   front: req.files?.identityDocFront?.[0],
@@ -16,6 +15,7 @@ const cleanupIdCardFiles = (req) => {
   unlinkQuiet(back);
 };
 
+/** Save uploaded ID photos. No OCR / content validation. */
 const requireAndVerifyIdCards = async (req, docType) => {
   const { front, back } = getIdCardFiles(req);
   const isBForm = docType === 'B-Form';
@@ -40,15 +40,6 @@ const requireAndVerifyIdCards = async (req, docType) => {
 
   if (isBForm && back) {
     unlinkQuiet(back);
-  }
-
-  const result = await verifyIdCardImages(front.path, back?.path, docType);
-  if (!result.ok) {
-    unlinkQuiet(front);
-    if (!isBForm) unlinkQuiet(back);
-    const err = new Error(result.message);
-    err.statusCode = 400;
-    throw err;
   }
 
   return {
