@@ -116,7 +116,7 @@ const calcBatchAttendance = async (batchId) => {
   return { sessionCount, students: rows };
 };
 
-const getLowAttendanceAlerts = async ({ batchIds } = {}) => {
+const getEnrollmentAttendanceList = async ({ batchIds, belowOnly = false } = {}) => {
   const filter = { status: 'active' };
   if (batchIds) filter.batch = { $in: batchIds };
   const enrollments = await Enrollment.find(filter)
@@ -126,21 +126,28 @@ const getLowAttendanceAlerts = async ({ batchIds } = {}) => {
     .lean();
 
   const totals = await attendanceTotalsByEnrollment(enrollments.map((en) => en._id));
-  const alerts = [];
+  const rows = [];
   enrollments.forEach((en) => {
     const stats = statsFromTotals(en, totals.get(String(en._id)));
-    if (stats.belowThreshold) {
-      alerts.push({
-        ...stats,
-        studentName: en.student?.user?.name,
-        studentEmail: en.student?.user?.email,
-        courseTitle: en.course?.title,
-        batchName: en.batch?.name,
-      });
-    }
+    if (belowOnly && !stats.belowThreshold) return;
+    rows.push({
+      ...stats,
+      studentName: en.student?.user?.name,
+      studentEmail: en.student?.user?.email,
+      courseTitle: en.course?.title,
+      batchName: en.batch?.name,
+    });
   });
-  return alerts.sort((a, b) => (a.percent ?? 0) - (b.percent ?? 0));
+  return rows.sort((a, b) => {
+    if (a.percent == null && b.percent == null) return 0;
+    if (a.percent == null) return 1;
+    if (b.percent == null) return -1;
+    return a.percent - b.percent;
+  });
 };
+
+const getLowAttendanceAlerts = async (opts = {}) =>
+  getEnrollmentAttendanceList({ ...opts, belowOnly: true });
 
 module.exports = {
   getAlertThreshold,
@@ -150,5 +157,6 @@ module.exports = {
   attendanceTotalsByEnrollment,
   calcEnrollmentAttendance,
   calcBatchAttendance,
+  getEnrollmentAttendanceList,
   getLowAttendanceAlerts,
 };

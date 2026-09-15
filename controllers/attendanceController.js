@@ -15,6 +15,7 @@ const {
   getAlertThreshold,
   calcBatchAttendance,
   getLowAttendanceAlerts,
+  getEnrollmentAttendanceList,
   attendanceTotalsByEnrollment,
 } = require('../utils/attendanceStats');
 
@@ -282,7 +283,10 @@ const getAlerts = asyncHandler(async (req, res) => {
     const batches = await Batch.find({ teacher: teacherId }).select('_id');
     batchIds = batches.map((b) => b._id);
   }
-  const alerts = await getLowAttendanceAlerts({ batchIds });
+  const all = req.query.all === 'true' || req.query.all === '1';
+  const alerts = all
+    ? await getEnrollmentAttendanceList({ batchIds, belowOnly: false })
+    : await getLowAttendanceAlerts({ batchIds });
   res.json({
     success: true,
     threshold: getAlertThreshold(),
