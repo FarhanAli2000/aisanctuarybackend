@@ -209,17 +209,54 @@ const updateStudent = asyncHandler(async (req, res) => {
     throw new Error('Student not found');
   }
 
-  const { address, guardianName, guardianContact, enrollmentStatus } = req.body;
+  const {
+    name,
+    email,
+    phone,
+    password,
+    address,
+    identityDocType,
+    guardianName,
+    guardianContact,
+    enrollmentStatus,
+  } = req.body;
+
+  const user = await User.findById(student.user);
+  if (!user) {
+    res.status(404);
+    throw new Error('Student user account not found');
+  }
+
+  if (email && email.toLowerCase() !== user.email) {
+    const emailExists = await User.findOne({ email: email.toLowerCase() });
+    if (emailExists) {
+      res.status(400);
+      throw new Error('A user with this email already exists');
+    }
+    user.email = email.toLowerCase();
+  }
+  if (name) user.name = name;
+  if (phone) user.phone = phone;
+  if (password) user.password = password;
+  await user.save();
 
   if (address) student.address = address;
-  if (guardianName) student.guardianName = guardianName;
-  if (guardianContact) student.guardianContact = guardianContact;
+  if (identityDocType) student.identityDocType = identityDocType;
+  if (guardianName !== undefined) student.guardianName = guardianName;
+  if (guardianContact !== undefined) student.guardianContact = guardianContact;
   if (enrollmentStatus) student.enrollmentStatus = enrollmentStatus;
+
+  const nextDocType = identityDocType || student.identityDocType;
+  if (nextDocType === 'B-Form') {
+    if (!student.guardianName || !student.guardianContact) {
+      res.status(400);
+      throw new Error('Guardian name and contact are required when identity document is B-Form');
+    }
+  }
 
   if (req.files && (req.files.identityDocFront || req.files.identityDocBack)) {
     try {
-      const docType = req.body.identityDocType || student.identityDocType;
-      const idUrls = await requireAndVerifyIdCards(req, docType);
+      const idUrls = await requireAndVerifyIdCards(req, nextDocType);
       student.identityDocFrontUrl = idUrls.identityDocFrontUrl;
       student.identityDocBackUrl = idUrls.identityDocBackUrl;
       student.identityDocImageUrl = idUrls.identityDocImageUrl;
@@ -230,7 +267,11 @@ const updateStudent = asyncHandler(async (req, res) => {
   }
 
   await student.save();
-  res.json({ success: true, data: student });
+  const populated = await StudentProfile.findById(student._id).populate(
+    'user',
+    'name email phone isActive'
+  );
+  res.json({ success: true, data: populated });
 });
 
 // @desc    Delete a student and related enrollments, fees, attendance

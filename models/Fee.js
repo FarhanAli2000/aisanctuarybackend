@@ -12,6 +12,11 @@ const feeSchema = new mongoose.Schema(
       ref: 'Enrollment',
       required: true,
     },
+    feeType: {
+      type: String,
+      enum: ['course', 'admission'],
+      default: 'course',
+    },
     status: {
       type: String,
       enum: ['paid', 'unpaid'],
@@ -54,5 +59,6 @@ const feeSchema = new mongoose.Schema(
 
 feeSchema.index({ enrollment: 1, paidDate: -1 });
 feeSchema.index({ paidDate: 1 });
+feeSchema.index({ feeType: 1, paidDate: 1 });
 
 module.exports = mongoose.model('Fee', feeSchema);

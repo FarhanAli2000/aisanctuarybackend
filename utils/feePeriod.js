@@ -1,6 +1,3 @@
-const TEACHER_SHARE = 0.5;
-const MANAGER_SHARE = 0.1;
-
 const startOfDay = (date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -45,10 +42,20 @@ const paidDateFilter = (periodEnd) => {
   return { $gte: start, $lte: end };
 };
 
+/** Whole rupees from user input — no float / comma surprises */
+const parseRupees = (value) => {
+  if (value === '' || value == null) return NaN;
+  const cleaned = String(value).replace(/,/g, '').trim();
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return NaN;
+  return Math.round(n);
+};
+
 const splitAmount = (amount) => {
-  const total = Number(amount) || 0;
-  const teacherShare = Math.round(total * TEACHER_SHARE);
-  const managerShare = Math.round(total * MANAGER_SHARE);
+  const total = parseRupees(amount) || 0;
+  // Exact % when amount is whole rupees: 50 / 10 / 40 (remainder stays with institute)
+  const teacherShare = Math.floor((total * 50) / 100);
+  const managerShare = Math.floor((total * 10) / 100);
   const instituteShare = total - teacherShare - managerShare;
   return { teacherShare, managerShare, instituteShare };
 };
@@ -58,4 +65,5 @@ module.exports = {
   paidDateFilter,
   splitAmount,
   cycleEndOn,
+  parseRupees,
 };

@@ -1,7 +1,9 @@
 const asyncHandler = require('express-async-handler');
 const Enrollment = require('../models/Enrollment');
 const StudentProfile = require('../models/StudentProfile');
+const Batch = require('../models/Batch');
 const { createActiveEnrollment } = require('../utils/enrollStudent');
+const { getCycleRange } = require('../utils/feePeriod');
 
 // @desc    Enroll a student into a course/batch - Workflow: WF-02
 // @route   POST /api/enrollments
@@ -51,6 +53,14 @@ const getEnrollments = asyncHandler(async (req, res) => {
     filter.student = studentProfile?._id;
   }
 
+  // Founder: only enrollments completed (created) in the current 25–25 fee cycle
+  let period = null;
+  if (req.user.role === 'founder') {
+    const range = getCycleRange(req.query.periodEnd || new Date());
+    filter.enrolledAt = { $gte: range.start, $lte: range.end };
+    period = { start: range.start, end: range.end, cycleEnd: range.cycleEnd };
+  }
+
   const enrollments = await Enrollment.find(filter)
     .populate({ path: 'student', populate: { path: 'user', select: 'name email' } })
     .populate('course', 'title')
@@ -59,7 +69,12 @@ const getEnrollments = asyncHandler(async (req, res) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  res.json({ success: true, count: enrollments.length, data: enrollments });
+  res.json({
+    success: true,
+    count: enrollments.length,
+    ...(period ? { period } : {}),
+    data: enrollments,
+  });
 });
 
 // @desc    Update enrollment (e.g. teacher extends course duration, or admin marks completed)
@@ -81,7 +96,36 @@ const updateEnrollment = asyncHandler(async (req, res) => {
     }
   }
 
-  const { status, courseDurationWeeks } = req.body;
+  const { status, courseDurationWeeks, batch } = req.body;
+
+  if (batch && String(batch) !== String(enrollment.batch)) {
+    if (req.user.role !== 'admin') {
+      res.status(403);
+      throw new Error('Only admin can change enrollment batch');
+    }
+    const batchDoc = await Batch.findById(batch);
+    if (!batchDoc || batchDoc.isActive === false) {
+      res.status(404);
+      throw new Error('Batch not found or inactive');
+    }
+    if (String(batchDoc.course) !== String(enrollment.course)) {
+      res.status(400);
+      throw new Error('New batch must belong to the same course');
+    }
+    if (enrollment.status === 'active') {
+      const batchEnrolledCount = await Enrollment.countDocuments({
+        batch,
+        status: 'active',
+        _id: { $ne: enrollment._id },
+      });
+      if (batchEnrolledCount >= batchDoc.capacity) {
+        res.status(400);
+        throw new Error('Selected batch is full');
+      }
+    }
+    enrollment.batch = batch;
+    enrollment.teacher = batchDoc.teacher;
+  }
 
   if (courseDurationWeeks) {
     enrollment.courseDurationWeeks = courseDurationWeeks;
@@ -96,7 +140,28 @@ const updateEnrollment = asyncHandler(async (req, res) => {
   }
 
   await enrollment.save();
-  res.json({ success: true, data: enrollment });
+
+  if (status === 'completed' || status === 'dropped' || status === 'active') {
+    const student = await StudentProfile.findById(enrollment.student);
+    if (student) {
+      const activeCount = await Enrollment.countDocuments({
+        student: student._id,
+        status: 'active',
+      });
+      if (activeCount > 0) student.enrollmentStatus = 'active';
+      else if (status === 'completed') student.enrollmentStatus = 'completed';
+      else if (student.enrollmentStatus === 'active') student.enrollmentStatus = 'inactive';
+      await student.save();
+    }
+  }
+
+  const populated = await Enrollment.findById(enrollment._id)
+    .populate({ path: 'student', populate: { path: 'user', select: 'name email' } })
+    .populate('course', 'title')
+    .populate('batch', 'name')
+    .populate({ path: 'teacher', populate: { path: 'user', select: 'name' } });
+
+  res.json({ success: true, data: populated });
 });
 
 module.exports = { createEnrollment, getEnrollments, updateEnrollment };

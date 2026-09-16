@@ -6,6 +6,8 @@ const {
   getPayments,
   getPendingFees,
   getFeeSummary,
+  updatePayment,
+  deletePayment,
 } = require('../controllers/feeController');
 const { protect } = require('../middleware/authMiddleware');
 const { allowRoles } = require('../middleware/roleMiddleware');
@@ -20,5 +22,10 @@ router
   .route('/')
   .get(allowRoles('admin', 'founder', 'student'), getPayments)
   .post(allowRoles('admin'), recordPayment);
+
+router
+  .route('/:id')
+  .put(allowRoles('admin'), updatePayment)
+  .delete(allowRoles('admin'), deletePayment);
 
 module.exports = router;

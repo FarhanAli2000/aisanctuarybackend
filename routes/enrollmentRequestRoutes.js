@@ -14,7 +14,7 @@ router.use(protect);
 
 router
   .route('/')
-  .get(allowRoles('admin', 'founder', 'student'), getEnrollmentRequests)
+  .get(allowRoles('admin', 'student'), getEnrollmentRequests)
   .post(allowRoles('student'), upload.idCardFields, createEnrollmentRequest);
 
 router.post('/:id/approve', allowRoles('admin'), approveEnrollmentRequest);

@@ -67,7 +67,7 @@ const getTeacherById = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { ...teacher.toObject(), batches } });
 });
 
-// @desc    Update teacher profile
+// @desc    Update teacher profile (+ linked user fields)
 // @route   PUT /api/teachers/:id
 // @access  Private/Admin
 const updateTeacher = asyncHandler(async (req, res) => {
@@ -77,12 +77,45 @@ const updateTeacher = asyncHandler(async (req, res) => {
     throw new Error('Teacher not found');
   }
 
-  const { expertise, isActive } = req.body;
-  if (expertise) teacher.expertise = Array.isArray(expertise) ? expertise : [expertise];
+  const { name, email, phone, password, expertise, isActive } = req.body;
+
+  const user = await User.findById(teacher.user);
+  if (!user) {
+    res.status(404);
+    throw new Error('Teacher user account not found');
+  }
+
+  if (email && email.toLowerCase() !== user.email) {
+    const emailExists = await User.findOne({ email: email.toLowerCase() });
+    if (emailExists) {
+      res.status(400);
+      throw new Error('A user with this email already exists');
+    }
+    user.email = email.toLowerCase();
+  }
+  if (name) user.name = name;
+  if (phone) user.phone = phone;
+  if (password) user.password = password;
+  await user.save();
+
+  if (expertise !== undefined) {
+    teacher.expertise = Array.isArray(expertise)
+      ? expertise
+      : expertise
+        ? String(expertise)
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+  }
   if (typeof isActive === 'boolean') teacher.isActive = isActive;
 
   await teacher.save();
-  res.json({ success: true, data: teacher });
+  const populated = await TeacherProfile.findById(teacher._id).populate(
+    'user',
+    'name email phone isActive'
+  );
+  res.json({ success: true, data: populated });
 });
 
 module.exports = { createTeacher, getTeachers, getTeacherById, updateTeacher };

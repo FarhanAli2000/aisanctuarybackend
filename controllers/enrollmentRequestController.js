@@ -172,7 +172,7 @@ const createEnrollmentRequest = asyncHandler(async (req, res) => {
 
 // @desc    List enrollment requests
 // @route   GET /api/enrollment-requests
-// @access  Private/Admin,Founder,Student(own)
+// @access  Private/Admin,Student(own)
 const getEnrollmentRequests = asyncHandler(async (req, res) => {
   const filter = {};
   if (req.query.status) filter.status = req.query.status;
@@ -183,7 +183,7 @@ const getEnrollmentRequests = asyncHandler(async (req, res) => {
       return res.json({ success: true, count: 0, data: [] });
     }
     filter.student = profile._id;
-  } else if (!['admin', 'founder'].includes(req.user.role)) {
+  } else if (req.user.role !== 'admin') {
     res.status(403);
     throw new Error(`Role '${req.user.role}' is not permitted to perform this action`);
   }

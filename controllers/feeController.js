@@ -3,7 +3,7 @@ const Fee = require('../models/Fee');
 const Enrollment = require('../models/Enrollment');
 const StudentProfile = require('../models/StudentProfile');
 const triggerN8n = require('../utils/triggerN8n');
-const { getCycleRange, paidDateFilter, splitAmount } = require('../utils/feePeriod');
+const { getCycleRange, paidDateFilter, splitAmount, parseRupees } = require('../utils/feePeriod');
 
 const populateFee = (query) =>
   query
@@ -23,12 +23,12 @@ const studentScope = async (req) => {
   return profile?._id || null;
 };
 
-// @desc    Set monthly fee amount for an enrollment (0 = no fee)
+// @desc    Set monthly course fee amount for an enrollment (0 = no fee)
 // @route   PUT /api/fees/plans/:enrollmentId
 // @access  Private/Admin
 const setFeePlan = asyncHandler(async (req, res) => {
   const { monthlyFeeAmount } = req.body;
-  const amount = Number(monthlyFeeAmount);
+  const amount = parseRupees(monthlyFeeAmount);
 
   if (Number.isNaN(amount) || amount < 0) {
     res.status(400);
@@ -52,11 +52,12 @@ const setFeePlan = asyncHandler(async (req, res) => {
   res.json({ success: true, data: populated });
 });
 
-// @desc    Admin records a cash/bank fee payment
+// @desc    Admin records cash/bank payment (course or admission)
 // @route   POST /api/fees
 // @access  Private/Admin
 const recordPayment = asyncHandler(async (req, res) => {
-  const { enrollment, amount, paidDate, method, note } = req.body;
+  const { enrollment, amount, paidDate, method, note, feeType } = req.body;
+  const type = feeType === 'admission' ? 'admission' : 'course';
 
   if (!enrollment || !amount || !paidDate || !method) {
     res.status(400);
@@ -68,7 +69,7 @@ const recordPayment = asyncHandler(async (req, res) => {
     throw new Error('Method must be cash or bank');
   }
 
-  const amountNum = Number(amount);
+  const amountNum = parseRupees(amount);
   if (Number.isNaN(amountNum) || amountNum < 1) {
     res.status(400);
     throw new Error('Amount must be a positive number');
@@ -81,12 +82,16 @@ const recordPayment = asyncHandler(async (req, res) => {
   }
 
   const date = new Date(paidDate);
-  const nextDueDate = new Date(date);
-  nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+  let nextDueDate;
+  if (type === 'course') {
+    nextDueDate = new Date(date);
+    nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+  }
 
   const fee = await Fee.create({
     student: enrollmentDoc.student,
     enrollment: enrollmentDoc._id,
+    feeType: type,
     status: 'paid',
     amount: amountNum,
     paidDate: date,
@@ -111,6 +116,7 @@ const recordPayment = asyncHandler(async (req, res) => {
     enrollmentId: enrollmentDoc._id,
     amount: amountNum,
     method,
+    feeType: type,
     paidDate: date,
   });
 
@@ -124,6 +130,9 @@ const recordPayment = asyncHandler(async (req, res) => {
 const getPayments = asyncHandler(async (req, res) => {
   const filter = { status: 'paid' };
   if (req.query.enrollment) filter.enrollment = req.query.enrollment;
+  if (req.query.feeType === 'course' || req.query.feeType === 'admission') {
+    filter.feeType = req.query.feeType;
+  }
 
   const ownStudentId = await studentScope(req);
   if (req.user.role === 'student') {
@@ -135,7 +144,7 @@ const getPayments = asyncHandler(async (req, res) => {
   res.json({ success: true, count: fees.length, data: fees });
 });
 
-// @desc    Enrollments with a monthly fee and no payment in the current 25-to-25 cycle
+// @desc    Enrollments with monthly course fee unpaid in current 25-to-25 cycle
 // @route   GET /api/fees/pending
 // @access  Private/Admin,Founder,Student(own)
 const getPendingFees = asyncHandler(async (req, res) => {
@@ -153,8 +162,10 @@ const getPendingFees = asyncHandler(async (req, res) => {
     .populate('course', 'title')
     .populate({ path: 'teacher', populate: { path: 'user', select: 'name' } });
 
+  // Only course-fee payments clear the monthly pending list
   const paidInCycle = await Fee.find({
     status: 'paid',
+    feeType: { $ne: 'admission' },
     paidDate: { $gte: range.start, $lte: range.end },
   }).select('enrollment');
 
@@ -169,7 +180,7 @@ const getPendingFees = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    25-to-25 monthly summary with 50/10/40 split
+// @desc    25-to-25 monthly summary — course split + institute-only cards
 // @route   GET /api/fees/summary
 // @access  Private/Admin,Founder
 const getFeeSummary = asyncHandler(async (req, res) => {
@@ -182,16 +193,26 @@ const getFeeSummary = asyncHandler(async (req, res) => {
 
   const byCourseMap = {};
   let totalCollected = 0;
+  let courseFeeCollected = 0;
+  let admissionFeeCollected = 0;
   let teacherShare = 0;
   let managerShare = 0;
-  let instituteShare = 0;
+  let instituteShareFromCourse = 0;
 
   payments.forEach((p) => {
-    const split = splitAmount(p.amount);
+    const type = p.feeType === 'admission' ? 'admission' : 'course';
     totalCollected += p.amount;
+
+    if (type === 'admission') {
+      admissionFeeCollected += p.amount;
+      return;
+    }
+
+    courseFeeCollected += p.amount;
+    const split = splitAmount(p.amount);
     teacherShare += split.teacherShare;
     managerShare += split.managerShare;
-    instituteShare += split.instituteShare;
+    instituteShareFromCourse += split.instituteShare;
 
     const courseId = String(p.enrollment?.course?._id || p.enrollment?.course || 'unknown');
     if (!byCourseMap[courseId]) {
@@ -219,13 +240,69 @@ const getFeeSummary = asyncHandler(async (req, res) => {
     data: {
       period: { start: range.start, end: range.end, cycleEnd: range.cycleEnd },
       totalCollected,
+      courseFeeCollected,
+      admissionFeeCollected,
+      // Institute-facing totals (no teacher/manager share)
+      instituteAdmissionFee: admissionFeeCollected,
+      instituteCourseFee: instituteShareFromCourse,
+      instituteTotal: admissionFeeCollected + instituteShareFromCourse,
       teacherShare,
       managerShare,
-      instituteShare,
+      instituteShare: instituteShareFromCourse,
       paymentCount: payments.length,
       byCourse: Object.values(byCourseMap),
     },
   });
+});
+
+// @desc    Update a recorded payment amount / details
+// @route   PUT /api/fees/:id
+// @access  Private/Admin
+const updatePayment = asyncHandler(async (req, res) => {
+  const fee = await Fee.findById(req.params.id);
+  if (!fee) {
+    res.status(404);
+    throw new Error('Payment not found');
+  }
+
+  const { amount, paidDate, method, note, feeType } = req.body;
+
+  if (amount !== undefined) {
+    const amountNum = parseRupees(amount);
+    if (Number.isNaN(amountNum) || amountNum < 1) {
+      res.status(400);
+      throw new Error('Amount must be a positive whole number');
+    }
+    fee.amount = amountNum;
+  }
+
+  if (paidDate) fee.paidDate = new Date(paidDate);
+  if (method) {
+    if (!['cash', 'bank'].includes(method)) {
+      res.status(400);
+      throw new Error('Method must be cash or bank');
+    }
+    fee.method = method;
+  }
+  if (note !== undefined) fee.note = note;
+  if (feeType === 'admission' || feeType === 'course') fee.feeType = feeType;
+
+  await fee.save();
+  const populated = await populateFee(Fee.findById(fee._id));
+  res.json({ success: true, data: populated });
+});
+
+// @desc    Delete a recorded payment
+// @route   DELETE /api/fees/:id
+// @access  Private/Admin
+const deletePayment = asyncHandler(async (req, res) => {
+  const fee = await Fee.findById(req.params.id);
+  if (!fee) {
+    res.status(404);
+    throw new Error('Payment not found');
+  }
+  await fee.deleteOne();
+  res.json({ success: true, message: 'Payment deleted' });
 });
 
 module.exports = {
@@ -234,4 +311,6 @@ module.exports = {
   getPayments,
   getPendingFees,
   getFeeSummary,
+  updatePayment,
+  deletePayment,
 };
