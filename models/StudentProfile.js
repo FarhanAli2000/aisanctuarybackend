@@ -17,11 +17,9 @@ const studentProfileSchema = new mongoose.Schema(
     identityDocType: {
       type: String,
       enum: ['CNIC', 'B-Form'],
-      required: true,
     },
     identityDocFrontUrl: {
       type: String,
-      required: true,
     },
     identityDocBackUrl: {
       type: String,
@@ -31,7 +29,6 @@ const studentProfileSchema = new mongoose.Schema(
     },
     identityDocImageUrl: {
       type: String,
-      required: true,
     },
     // Guardian info is mandatory when identityDocType is B-Form
     guardianName: {

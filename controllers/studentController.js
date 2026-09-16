@@ -41,24 +41,35 @@ const registerStudent = asyncHandler(async (req, res) => {
     guardianContact,
   } = req.body;
 
-  if (!name || !email || !phone || !password || !address || !identityDocType) {
+  if (!name || !email || !phone || !password || !address) {
     cleanupIdCardFiles(req);
     res.status(400);
-    throw new Error('Name, email, phone, password, address, and identity document type are required');
+    throw new Error('Name, email, phone, password, and address are required');
   }
 
-  if (identityDocType === 'B-Form' && (!guardianName || !guardianContact)) {
-    cleanupIdCardFiles(req);
-    res.status(400);
-    throw new Error('Guardian name and contact are required when identity document is B-Form');
-  }
+  const hasIdUpload =
+    req.files?.identityDocFront?.[0] || req.files?.identityDocBack?.[0];
 
   let idUrls;
-  try {
-    idUrls = await requireAndVerifyIdCards(req, identityDocType);
-  } catch (err) {
-    res.status(err.statusCode || 400);
-    throw err;
+  if (hasIdUpload) {
+    if (!identityDocType) {
+      cleanupIdCardFiles(req);
+      res.status(400);
+      throw new Error('Identity document type is required when uploading ID photos');
+    }
+
+    if (identityDocType === 'B-Form' && (!guardianName || !guardianContact)) {
+      cleanupIdCardFiles(req);
+      res.status(400);
+      throw new Error('Guardian name and contact are required when identity document is B-Form');
+    }
+
+    try {
+      idUrls = await requireAndVerifyIdCards(req, identityDocType);
+    } catch (err) {
+      res.status(err.statusCode || 400);
+      throw err;
+    }
   }
 
   const emailExists = await User.findOne({ email: email.toLowerCase() });
@@ -77,17 +88,24 @@ const registerStudent = asyncHandler(async (req, res) => {
   });
 
   // Create the student-specific profile
-  const studentProfile = await StudentProfile.create({
+  const profileFields = {
     user: user._id,
     address,
-    identityDocType,
-    identityDocFrontUrl: idUrls.identityDocFrontUrl,
-    identityDocBackUrl: idUrls.identityDocBackUrl,
-    identityDocImageUrl: idUrls.identityDocImageUrl,
-    guardianName: identityDocType === 'B-Form' ? guardianName : undefined,
-    guardianContact: identityDocType === 'B-Form' ? guardianContact : undefined,
     enrollmentStatus: 'pending',
-  });
+  };
+
+  if (idUrls) {
+    profileFields.identityDocType = identityDocType;
+    profileFields.identityDocFrontUrl = idUrls.identityDocFrontUrl;
+    profileFields.identityDocBackUrl = idUrls.identityDocBackUrl;
+    profileFields.identityDocImageUrl = idUrls.identityDocImageUrl;
+    if (identityDocType === 'B-Form') {
+      profileFields.guardianName = guardianName;
+      profileFields.guardianContact = guardianContact;
+    }
+  }
+
+  const studentProfile = await StudentProfile.create(profileFields);
 
   // Fire automation: WF-01 Registration -> sends registration confirmation email
   triggerN8n('student-registered', {
