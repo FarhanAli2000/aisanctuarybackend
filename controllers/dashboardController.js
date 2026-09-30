@@ -22,12 +22,11 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
     totalCourses,
     activeCourses,
     totalBatches,
-    activeEnrollments,
     completedEnrollments,
+    completedEnrollmentList,
     recentEnrollments,
     studentsByCourseAgg,
     lowAttendance,
-    batchFillStats,
   ] = await Promise.all([
     StudentProfile.countDocuments(),
     StudentProfile.countDocuments({ enrollmentStatus: 'active' }),
@@ -37,9 +36,14 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
     Course.countDocuments(),
     Course.countDocuments({ isActive: true }),
     Batch.countDocuments({ isActive: true }),
-    Enrollment.countDocuments({ status: 'active' }),
-    Enrollment.countDocuments({ status: 'completed' }),
-    Enrollment.find()
+    Enrollment.distinct('student', { status: 'completed' }).then((ids) => ids.length),
+    Enrollment.find({ status: 'completed' })
+      .sort({ completedAt: -1, updatedAt: -1 })
+      .populate({ path: 'student', populate: { path: 'user', select: 'name email' } })
+      .populate('course', 'title')
+      .populate('batch', 'name')
+      .lean(),
+    Enrollment.find({ status: 'active' })
       .sort({ createdAt: -1 })
       .limit(5)
       .populate({ path: 'student', populate: { path: 'user', select: 'name' } })
@@ -57,41 +61,37 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
         },
       },
       { $unwind: '$course' },
-      { $project: { _id: 0, courseTitle: '$course.title', count: 1 } },
-      { $sort: { count: -1 } },
-    ]),
-    getLowAttendanceAlerts(),
-    Batch.aggregate([
-      { $match: { isActive: true } },
       {
         $lookup: {
-          from: 'enrollments',
-          let: { batchId: '$_id' },
+          from: 'batches',
+          let: { courseId: '$_id' },
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
-                    { $eq: ['$batch', '$$batchId'] },
-                    { $eq: ['$status', 'active'] },
+                    { $eq: ['$course', '$$courseId'] },
+                    { $eq: ['$isActive', true] },
                   ],
                 },
               },
             },
-            { $count: 'enrolled' },
+            { $group: { _id: null, capacity: { $sum: '$capacity' } } },
           ],
-          as: 'enroll',
+          as: 'batchCap',
         },
       },
       {
         $project: {
           _id: 0,
-          batchName: '$name',
-          capacity: 1,
-          enrolled: { $ifNull: [{ $arrayElemAt: ['$enroll.enrolled', 0] }, 0] },
+          courseTitle: '$course.title',
+          count: 1,
+          capacity: { $ifNull: [{ $arrayElemAt: ['$batchCap.capacity', 0] }, 0] },
         },
       },
+      { $sort: { count: -1 } },
     ]),
+    getLowAttendanceAlerts(),
   ]);
 
   res.json({
@@ -107,8 +107,16 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
       courses: { total: totalCourses, active: activeCourses },
       batches: { total: totalBatches },
       enrollments: {
-        active: activeEnrollments,
         completed: completedEnrollments,
+        completedList: completedEnrollmentList.map((e) => ({
+          _id: e._id,
+          studentName: e.student?.user?.name || 'Unknown',
+          studentEmail: e.student?.user?.email || '',
+          courseTitle: e.course?.title || '—',
+          batchName: e.batch?.name || '—',
+          completedAt: e.completedAt || e.updatedAt || null,
+          enrolledAt: e.enrolledAt || null,
+        })),
       },
       attendance: {
         threshold: getAlertThreshold(),
@@ -116,7 +124,6 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
         alerts: lowAttendance.slice(0, 8),
       },
       studentsByCourse: studentsByCourseAgg,
-      batchFillStats,
       recentEnrollments,
     },
   });
