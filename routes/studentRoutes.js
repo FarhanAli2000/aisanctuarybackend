@@ -6,6 +6,7 @@ const {
   getStudents,
   getStudentById,
   updateStudent,
+  setStudentPause,
   deactivateStudent,
 } = require('../controllers/studentController');
 const { protect } = require('../middleware/authMiddleware');
@@ -26,5 +27,7 @@ router
   .get(allowRoles('admin', 'founder', 'teacher', 'student'), getStudentById)
   .put(allowRoles('admin'), upload.idCardFields, updateStudent)
   .delete(allowRoles('admin'), deactivateStudent);
+
+router.put('/:id/pause', allowRoles('admin'), setStudentPause);
 
 module.exports = router;

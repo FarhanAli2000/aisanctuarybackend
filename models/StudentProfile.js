@@ -21,11 +21,10 @@ const studentProfileSchema = new mongoose.Schema(
     identityDocFrontUrl: {
       type: String,
     },
+    // Back photo is enforced at upload time (requireAndVerifyIdCards), not here, so
+    // students registered without ID photos can still be edited
     identityDocBackUrl: {
       type: String,
-      required: function () {
-        return this.identityDocType === 'CNIC';
-      },
     },
     identityDocImageUrl: {
       type: String,
@@ -49,6 +48,15 @@ const studentProfileSchema = new mongoose.Schema(
       type: String,
       enum: ['pending', 'active', 'completed', 'inactive'],
       default: 'pending',
+    },
+    // Admin pauses a student (e.g. travelling): enrollments stay intact but the
+    // student is hidden from attendance rosters and cannot be marked until resumed
+    isPaused: {
+      type: Boolean,
+      default: false,
+    },
+    pausedAt: {
+      type: Date,
     },
   },
   { timestamps: true }

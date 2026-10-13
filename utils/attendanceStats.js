@@ -53,8 +53,12 @@ const attendanceTotalsByEnrollment = async (enrollmentIds) => {
     .map((id) => (id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id)));
   if (!ids.length) return new Map();
 
-  const presentStatus = await AttendanceStatusType.findOne({ code: 'present' }).select('_id').lean();
+  const [presentStatus, leaveStatus] = await Promise.all([
+    AttendanceStatusType.findOne({ code: 'present' }).select('_id').lean(),
+    AttendanceStatusType.findOne({ code: 'leave' }).select('_id').lean(),
+  ]);
   const presentId = presentStatus?._id;
+  const leaveId = leaveStatus?._id;
 
   const rows = await Attendance.aggregate([
     { $match: { enrollment: { $in: ids } } },
@@ -62,9 +66,16 @@ const attendanceTotalsByEnrollment = async (enrollmentIds) => {
       $group: {
         _id: '$enrollment',
         total: { $sum: 1 },
+        // Leave counts as half present (and so half absent)
         present: {
           $sum: {
-            $cond: [{ $eq: ['$status', presentId] }, 1, 0],
+            $switch: {
+              branches: [
+                { case: { $eq: ['$status', presentId] }, then: 1 },
+                { case: { $eq: ['$status', leaveId] }, then: 0.5 },
+              ],
+              default: 0,
+            },
           },
         },
       },

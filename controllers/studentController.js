@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
+const AuditLog = require('../models/AuditLog');
 const triggerN8n = require('../utils/triggerN8n');
 const { deleteStudentByProfile } = require('../utils/deleteStudent');
 const { requireAndVerifyIdCards, cleanupIdCardFiles } = require('../utils/idCardFiles');
@@ -165,6 +166,8 @@ const getStudents = asyncHandler(async (req, res) => {
     guardianName: 1,
     guardianContact: 1,
     enrollmentStatus: 1,
+    isPaused: 1,
+    pausedAt: 1,
     createdAt: 1,
     updatedAt: 1,
     user: {
@@ -258,13 +261,16 @@ const updateStudent = asyncHandler(async (req, res) => {
   if (password) user.password = password;
   await user.save();
 
+  const uploadingIds = Boolean(req.files && (req.files.identityDocFront || req.files.identityDocBack));
+
   if (address) student.address = address;
-  if (identityDocType) student.identityDocType = identityDocType;
+  // Doc type only changes together with new ID photos, so it never mismatches the stored images
+  if (identityDocType && uploadingIds) student.identityDocType = identityDocType;
   if (guardianName !== undefined) student.guardianName = guardianName;
   if (guardianContact !== undefined) student.guardianContact = guardianContact;
   if (enrollmentStatus) student.enrollmentStatus = enrollmentStatus;
 
-  const nextDocType = identityDocType || student.identityDocType;
+  const nextDocType = student.identityDocType;
   if (nextDocType === 'B-Form') {
     if (!student.guardianName || !student.guardianContact) {
       res.status(400);
@@ -272,7 +278,7 @@ const updateStudent = asyncHandler(async (req, res) => {
     }
   }
 
-  if (req.files && (req.files.identityDocFront || req.files.identityDocBack)) {
+  if (uploadingIds) {
     try {
       const idUrls = await requireAndVerifyIdCards(req, nextDocType);
       student.identityDocFrontUrl = idUrls.identityDocFrontUrl;
@@ -285,6 +291,42 @@ const updateStudent = asyncHandler(async (req, res) => {
   }
 
   await student.save();
+  const populated = await StudentProfile.findById(student._id).populate(
+    'user',
+    'name email phone isActive'
+  );
+  res.json({ success: true, data: populated });
+});
+
+// @desc    Pause or resume a student's courses (paused students are skipped in attendance)
+// @route   PUT /api/students/:id/pause
+// @access  Private/Admin
+const setStudentPause = asyncHandler(async (req, res) => {
+  const { paused } = req.body;
+  if (typeof paused !== 'boolean') {
+    res.status(400);
+    throw new Error('paused must be true or false');
+  }
+
+  const student = await StudentProfile.findById(req.params.id);
+  if (!student) {
+    res.status(404);
+    throw new Error('Student not found');
+  }
+
+  if (student.isPaused !== paused) {
+    student.isPaused = paused;
+    student.pausedAt = paused ? new Date() : undefined;
+    await student.save();
+
+    await AuditLog.create({
+      user: req.user._id,
+      action: paused ? 'student.paused' : 'student.resumed',
+      entityType: 'StudentProfile',
+      entityId: student._id,
+    });
+  }
+
   const populated = await StudentProfile.findById(student._id).populate(
     'user',
     'name email phone isActive'
@@ -313,5 +355,6 @@ module.exports = {
   getStudents,
   getStudentById,
   updateStudent,
+  setStudentPause,
   deactivateStudent,
 };

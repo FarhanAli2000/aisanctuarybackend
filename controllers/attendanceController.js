@@ -130,10 +130,12 @@ const getSessionRoster = asyncHandler(async (req, res) => {
     throw err;
   }
 
-  const enrollments = await Enrollment.find({
+  const allEnrollments = await Enrollment.find({
     batch: session.batch._id || session.batch,
     status: 'active',
   }).populate({ path: 'student', populate: { path: 'user', select: 'name email' } });
+  // Paused students are left off the roster until admin resumes them
+  const enrollments = allEnrollments.filter((en) => en.student && !en.student.isPaused);
 
   const marks = await Attendance.find({ session: session._id }).populate('status', 'code label');
   const markByStudent = {};
@@ -192,6 +194,17 @@ const saveSessionAttendance = asyncHandler(async (req, res) => {
   await ensureAttendanceStatuses();
   const statuses = await getActiveStatuses();
   const statusIds = new Set(statuses.map((s) => String(s._id)));
+
+  const pausedStudents = await StudentProfile.find({
+    _id: { $in: marks.map((m) => m.student).filter(Boolean) },
+    isPaused: true,
+  })
+    .select('_id')
+    .lean();
+  if (pausedStudents.length) {
+    res.status(400);
+    throw new Error('Attendance cannot be marked for a paused student');
+  }
 
   const saved = [];
   for (const row of marks) {
