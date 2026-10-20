@@ -8,6 +8,7 @@ const TeacherProfile = require('../models/TeacherProfile');
 const StudentProfile = require('../models/StudentProfile');
 const AuditLog = require('../models/AuditLog');
 const triggerN8n = require('../utils/triggerN8n');
+const { SEAT_FREE_STUDENT_STATUSES, takesSeat } = require('../utils/queryHelpers');
 const {
   ensureAttendanceStatuses,
   invalidateStatusCache,
@@ -134,8 +135,8 @@ const getSessionRoster = asyncHandler(async (req, res) => {
     batch: session.batch._id || session.batch,
     status: 'active',
   }).populate({ path: 'student', populate: { path: 'user', select: 'name email' } });
-  // Paused students are left off the roster until admin resumes them
-  const enrollments = allEnrollments.filter((en) => en.student && !en.student.isPaused);
+  // Only active students are marked: paused, inactive and completed students are left off
+  const enrollments = allEnrollments.filter((en) => takesSeat(en.student) && !en.student.isPaused);
 
   const marks = await Attendance.find({ session: session._id }).populate('status', 'code label');
   const markByStudent = {};
@@ -195,15 +196,15 @@ const saveSessionAttendance = asyncHandler(async (req, res) => {
   const statuses = await getActiveStatuses();
   const statusIds = new Set(statuses.map((s) => String(s._id)));
 
-  const pausedStudents = await StudentProfile.find({
+  const blockedStudents = await StudentProfile.find({
     _id: { $in: marks.map((m) => m.student).filter(Boolean) },
-    isPaused: true,
+    $or: [{ isPaused: true }, { enrollmentStatus: { $in: SEAT_FREE_STUDENT_STATUSES } }],
   })
     .select('_id')
     .lean();
-  if (pausedStudents.length) {
+  if (blockedStudents.length) {
     res.status(400);
-    throw new Error('Attendance cannot be marked for a paused student');
+    throw new Error('Attendance can only be marked for active students (not paused, inactive or completed)');
   }
 
   const saved = [];

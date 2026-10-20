@@ -4,6 +4,7 @@ const Batch = require('../models/Batch');
 const Course = require('../models/Course');
 const EnrollmentRequest = require('../models/EnrollmentRequest');
 const triggerN8n = require('./triggerN8n');
+const { countBatchSeats } = require('./queryHelpers');
 
 const MAX_ACTIVE_ENROLLMENTS_PER_STUDENT = 2;
 
@@ -41,7 +42,7 @@ const createActiveEnrollment = async ({ studentId, courseId, batchId, courseDura
     );
   }
 
-  const batchEnrolledCount = await Enrollment.countDocuments({ batch: batchId, status: 'active' });
+  const batchEnrolledCount = await countBatchSeats(batchId);
   if (batchEnrolledCount >= batchDoc.capacity) {
     throw httpError(400, 'This batch is full. Please choose a different batch.');
   }

@@ -4,6 +4,7 @@ const StudentProfile = require('../models/StudentProfile');
 const Batch = require('../models/Batch');
 const { createActiveEnrollment } = require('../utils/enrollStudent');
 const { getCycleRange } = require('../utils/feePeriod');
+const { countBatchSeats } = require('../utils/queryHelpers');
 
 // @desc    Enroll a student into a course/batch - Workflow: WF-02
 // @route   POST /api/enrollments
@@ -113,11 +114,7 @@ const updateEnrollment = asyncHandler(async (req, res) => {
       throw new Error('New batch must belong to the same course');
     }
     if (enrollment.status === 'active') {
-      const batchEnrolledCount = await Enrollment.countDocuments({
-        batch,
-        status: 'active',
-        _id: { $ne: enrollment._id },
-      });
+      const batchEnrolledCount = await countBatchSeats(batch, enrollment._id);
       if (batchEnrolledCount >= batchDoc.capacity) {
         res.status(400);
         throw new Error('Selected batch is full');
@@ -132,6 +129,15 @@ const updateEnrollment = asyncHandler(async (req, res) => {
     const newEndDate = new Date(enrollment.enrolledAt);
     newEndDate.setDate(newEndDate.getDate() + courseDurationWeeks * 7);
     enrollment.expectedEndDate = newEndDate;
+  }
+
+  // Reactivating a completed/dropped enrollment takes a seat again, so respect capacity
+  if (status === 'active' && enrollment.status !== 'active') {
+    const batchDoc = await Batch.findById(enrollment.batch);
+    if (batchDoc && (await countBatchSeats(batchDoc._id, enrollment._id)) >= batchDoc.capacity) {
+      res.status(400);
+      throw new Error('This batch is full. Choose a different batch before reactivating.');
+    }
   }
 
   if (status) {

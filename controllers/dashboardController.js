@@ -5,6 +5,7 @@ const Course = require('../models/Course');
 const Batch = require('../models/Batch');
 const Enrollment = require('../models/Enrollment');
 const { getLowAttendanceAlerts, getAlertThreshold } = require('../utils/attendanceStats');
+const { SEAT_FREE_STUDENT_STATUSES } = require('../utils/queryHelpers');
 
 const TREND_MONTHS = 12;
 
@@ -117,6 +118,21 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
       .lean(),
     Enrollment.aggregate([
       { $match: { status: 'active' } },
+      {
+        $lookup: {
+          from: 'studentprofiles',
+          localField: 'student',
+          foreignField: '_id',
+          as: 'studentProfile',
+        },
+      },
+      // Same seat rule as batch capacity: inactive/completed students don't count
+      {
+        $match: {
+          'studentProfile.0': { $exists: true },
+          'studentProfile.enrollmentStatus': { $nin: SEAT_FREE_STUDENT_STATUSES },
+        },
+      },
       { $group: { _id: '$course', count: { $sum: 1 } } },
       {
         $lookup: {

@@ -3,7 +3,7 @@ const Batch = require('../models/Batch');
 const Enrollment = require('../models/Enrollment');
 const Course = require('../models/Course');
 const TeacherProfile = require('../models/TeacherProfile');
-const { enrolledCountByBatch } = require('../utils/queryHelpers');
+const { enrolledCountByBatch, takesSeat } = require('../utils/queryHelpers');
 
 // @desc    Create batch (teacher selects schedule days/time)
 // @route   POST /api/batches
@@ -97,12 +97,14 @@ const getBatchById = asyncHandler(async (req, res) => {
     populate: { path: 'user', select: 'name email phone' },
   });
 
+  const seatsTaken = enrollments.filter((en) => takesSeat(en.student)).length;
+
   res.json({
     success: true,
     data: {
       ...batch.toObject(),
-      enrolledCount: enrollments.length,
-      spotsLeft: batch.capacity - enrollments.length,
+      enrolledCount: seatsTaken,
+      spotsLeft: batch.capacity - seatsTaken,
       students: enrollments,
     },
   });

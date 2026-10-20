@@ -170,7 +170,37 @@ const getPendingFees = asyncHandler(async (req, res) => {
   }).select('enrollment');
 
   const paidEnrollmentIds = new Set(paidInCycle.map((f) => String(f.enrollment)));
-  const pending = enrollments.filter((e) => !paidEnrollmentIds.has(String(e._id)));
+  const pendingDocs = enrollments.filter((e) => !paidEnrollmentIds.has(String(e._id)));
+
+  // Most recent course-fee payment before this cycle, so admin sees when they last paid
+  const lastPaidRows = await Fee.aggregate([
+    {
+      $match: {
+        enrollment: { $in: pendingDocs.map((e) => e._id) },
+        status: 'paid',
+        feeType: { $ne: 'admission' },
+        paidDate: { $lt: range.start },
+      },
+    },
+    { $sort: { paidDate: -1 } },
+    {
+      $group: {
+        _id: '$enrollment',
+        lastPaidDate: { $first: '$paidDate' },
+        lastPaidAmount: { $first: '$amount' },
+      },
+    },
+  ]);
+  const lastPaidByEnrollment = new Map(lastPaidRows.map((r) => [String(r._id), r]));
+
+  const pending = pendingDocs.map((e) => {
+    const last = lastPaidByEnrollment.get(String(e._id));
+    return {
+      ...e.toObject(),
+      lastPaidDate: last?.lastPaidDate || null,
+      lastPaidAmount: last?.lastPaidAmount ?? null,
+    };
+  });
 
   res.json({
     success: true,

@@ -5,6 +5,7 @@ const StudentProfile = require('../models/StudentProfile');
 const Batch = require('../models/Batch');
 const Course = require('../models/Course');
 const triggerN8n = require('../utils/triggerN8n');
+const { countBatchSeats } = require('../utils/queryHelpers');
 const { requireAndVerifyIdCards, cleanupIdCardFiles } = require('../utils/idCardFiles');
 const {
   MAX_ACTIVE_ENROLLMENTS_PER_STUDENT,
@@ -153,7 +154,7 @@ const createEnrollmentRequest = asyncHandler(async (req, res) => {
     throw new Error('You already have a pending request for this course');
   }
 
-  const batchEnrolledCount = await Enrollment.countDocuments({ batch, status: 'active' });
+  const batchEnrolledCount = await countBatchSeats(batch);
   if (batchEnrolledCount >= batchDoc.capacity) {
     res.status(400);
     throw new Error('This batch is full. Please choose a different batch.');
