@@ -25,9 +25,18 @@ connectDB();
 const app = express();
 
 app.use(compression());
+// FRONTEND_URL may hold several comma-separated origins, e.g.
+// https://myemo.org,https://aisanctuary.vercel.app,http://localhost:5173
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((value) => value.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || '*',
+    origin: allowedOrigins.length
+      ? (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin))
+      : '*',
     credentials: true,
   })
 );
