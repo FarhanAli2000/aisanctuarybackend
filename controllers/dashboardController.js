@@ -190,6 +190,39 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
     monthlySeries(Enrollment, monthKeys),
   ]);
 
+  // A student counts as completed when an enrollment is completed OR the admin marked the
+  // student profile completed (Students page); the profile flag alone used to be missed here.
+  const enrollmentCompletedIds = new Set(completedEnrollmentList.map((e) => String(e.student?._id)));
+  const profileCompleted = await StudentProfile.find({ enrollmentStatus: 'completed' })
+    .populate('user', 'name email')
+    .select('user updatedAt')
+    .lean();
+  const profileOnly = profileCompleted.filter((s) => !enrollmentCompletedIds.has(String(s._id)));
+  const latestEnrollments = profileOnly.length
+    ? await Enrollment.find({ student: { $in: profileOnly.map((s) => s._id) } })
+        .sort({ createdAt: -1 })
+        .populate('course', 'title')
+        .populate('batch', 'name')
+        .lean()
+    : [];
+  const latestByStudent = new Map();
+  latestEnrollments.forEach((e) => {
+    if (!latestByStudent.has(String(e.student))) latestByStudent.set(String(e.student), e);
+  });
+  const profileOnlyList = profileOnly.map((s) => {
+    const e = latestByStudent.get(String(s._id));
+    return {
+      _id: `profile-${s._id}`,
+      studentName: s.user?.name || 'Unknown',
+      studentEmail: s.user?.email || '',
+      courseTitle: e?.course?.title || '—',
+      batchName: e?.batch?.name || '—',
+      completedAt: e?.completedAt || s.updatedAt || null,
+      enrolledAt: e?.enrolledAt || null,
+    };
+  });
+  const completedStudentCount = enrollmentCompletedIds.size + profileOnly.length;
+
   const lastSix = (series, key = 'total') => series.slice(-6).map((p) => p[key]);
 
   res.json({
@@ -205,8 +238,8 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
       courses: { total: totalCourses, active: activeCourses },
       batches: { total: totalBatches },
       enrollments: {
-        completed: completedEnrollments,
-        completedList: completedEnrollmentList.map((e) => ({
+        completed: completedStudentCount,
+        completedList: [...completedEnrollmentList.map((e) => ({
           _id: e._id,
           studentName: e.student?.user?.name || 'Unknown',
           studentEmail: e.student?.user?.email || '',
@@ -214,7 +247,7 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
           batchName: e.batch?.name || '—',
           completedAt: e.completedAt || e.updatedAt || null,
           enrolledAt: e.enrolledAt || null,
-        })),
+        })), ...profileOnlyList],
       },
       attendance: {
         threshold: getAlertThreshold(),
