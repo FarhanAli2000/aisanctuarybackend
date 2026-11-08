@@ -15,10 +15,22 @@ const getStudentRecipients = async () => {
     }));
 };
 
+// Staff who get the same digest email as the students (comma separated in AI_NEWS_EXTRA_RECIPIENTS to override).
+const EXTRA_RECIPIENTS = (process.env.AI_NEWS_EXTRA_RECIPIENTS || 'amir@myemo.org,farhan@myemo.org')
+  .split(',')
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+
 const dispatchAiNews = async () => {
   const students = await getStudentRecipients();
+  const known = new Set(students.map((s) => s.email.toLowerCase()));
+  const extras = EXTRA_RECIPIENTS.filter((email) => !known.has(email)).map((email) => ({
+    email,
+    name: email.split('@')[0],
+  }));
   await triggerN8n('ai-news-digest', {
-    students,
+    // n8n mails every entry here, so the extra addresses get the digest exactly like a student.
+    students: [...students, ...extras],
     studentCount: students.length,
   });
   return { studentCount: students.length };

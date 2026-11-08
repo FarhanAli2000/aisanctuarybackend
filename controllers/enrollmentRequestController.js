@@ -43,9 +43,22 @@ const getOrCreateStudentProfile = async (req) => {
     guardianContact,
   } = req.body;
 
+  // A student can apply with just a course and batch. Address and ID photos are only handled
+  // when the client sends them (older forms still do).
+  if (!address && !identityDocType) {
+    profile = await StudentProfile.create({ user: req.user._id, enrollmentStatus: 'pending' });
+    triggerN8n('student-registered', {
+      studentId: profile._id,
+      userId: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+    });
+    return profile;
+  }
+
   if (!address || !identityDocType) {
     cleanupIdCardFiles(req);
-    const err = new Error('Address and identity document type are required for your first enrollment request');
+    const err = new Error('Address and identity document type must be sent together');
     err.statusCode = 400;
     throw err;
   }

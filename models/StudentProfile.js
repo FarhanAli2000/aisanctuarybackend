@@ -8,10 +8,12 @@ const studentProfileSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    // Optional: students applying for a course are no longer asked for an address or ID;
+    // an admin can still record them when registering a student by hand
     address: {
       type: String,
-      required: true,
       trim: true,
+      default: '',
     },
     // Identity document: CNIC if the student has one, otherwise B-Form
     identityDocType: {
