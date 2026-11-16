@@ -5,6 +5,7 @@ const Course = require('../models/Course');
 const EnrollmentRequest = require('../models/EnrollmentRequest');
 const triggerN8n = require('./triggerN8n');
 const { countBatchSeats } = require('./queryHelpers');
+const { getCourseBatch } = require('./courseBatch');
 
 const MAX_ACTIVE_ENROLLMENTS_PER_STUDENT = 2;
 
@@ -25,13 +26,15 @@ const createActiveEnrollment = async ({ studentId, courseId, batchId, courseDura
     throw httpError(404, 'Course not found or inactive');
   }
 
-  const batchDoc = await Batch.findById(batchId);
+  // Callers send just the course; its class schedule record is found here.
+  const batchDoc = batchId ? await Batch.findById(batchId) : await getCourseBatch(courseId);
   if (!batchDoc || !batchDoc.isActive) {
-    throw httpError(404, 'Batch not found or inactive');
+    throw httpError(404, 'This course has no active class schedule');
   }
+  batchId = batchDoc._id;
 
   if (String(batchDoc.course) !== String(courseId)) {
-    throw httpError(400, 'Selected batch does not belong to this course');
+    throw httpError(400, 'Selected class schedule does not belong to this course');
   }
 
   const activeCount = await Enrollment.countDocuments({ student: studentId, status: 'active' });
@@ -44,7 +47,7 @@ const createActiveEnrollment = async ({ studentId, courseId, batchId, courseDura
 
   const batchEnrolledCount = await countBatchSeats(batchId);
   if (batchEnrolledCount >= batchDoc.capacity) {
-    throw httpError(400, 'This batch is full. Please choose a different batch.');
+    throw httpError(400, 'This course is full.');
   }
 
   const alreadyEnrolled = await Enrollment.findOne({

@@ -4,6 +4,7 @@ const ClassSession = require('../models/ClassSession');
 const Attendance = require('../models/Attendance');
 const Enrollment = require('../models/Enrollment');
 const Batch = require('../models/Batch');
+const { getCourseBatch } = require('../utils/courseBatch');
 const TeacherProfile = require('../models/TeacherProfile');
 const StudentProfile = require('../models/StudentProfile');
 const AuditLog = require('../models/AuditLog');
@@ -33,7 +34,7 @@ const assertCanAccessBatch = async (req, batch) => {
   if (req.user.role === 'teacher') {
     const teacherId = await getTeacherProfileId(req.user);
     if (String(batch.teacher) !== String(teacherId)) {
-      const err = new Error('Not authorized to access this batch');
+      const err = new Error('Not authorized to access this course');
       err.statusCode = 403;
       throw err;
     }
@@ -71,21 +72,34 @@ const updateStatusLabel = asyncHandler(async (req, res) => {
 });
 
 const getOrCreateSession = asyncHandler(async (req, res) => {
-  const { batch, sessionDate } = req.body;
+  const { course, sessionDate } = req.body;
+  let { batch } = req.body;
   const date = sessionDate || todayYmd();
-  if (!batch) {
+  if (!course && !batch) {
     res.status(400);
-    throw new Error('Batch is required');
+    throw new Error('Course is required');
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     res.status(400);
     throw new Error('sessionDate must be YYYY-MM-DD');
   }
 
-  const batchDoc = await Batch.findById(batch);
+  // Attendance is taken per course; the course's class schedule record is found here.
+  let batchDoc;
+  if (course) {
+    try {
+      batchDoc = await getCourseBatch(course);
+    } catch (err) {
+      res.status(err.statusCode || 400);
+      throw err;
+    }
+    batch = batchDoc._id;
+  } else {
+    batchDoc = await Batch.findById(batch);
+  }
   if (!batchDoc || !batchDoc.isActive) {
     res.status(404);
-    throw new Error('Batch not found or inactive');
+    throw new Error('Course not found or has no active class schedule');
   }
 
   try {
@@ -226,7 +240,7 @@ const saveSessionAttendance = asyncHandler(async (req, res) => {
     });
     if (!enrollment) {
       res.status(400);
-      throw new Error('Student is not actively enrolled in this batch');
+      throw new Error('Student is not actively enrolled in this course');
     }
 
     const record = await Attendance.findOneAndUpdate(
@@ -366,7 +380,7 @@ const getBatchStats = asyncHandler(async (req, res) => {
   const batchDoc = await Batch.findById(req.params.batchId);
   if (!batchDoc) {
     res.status(404);
-    throw new Error('Batch not found');
+    throw new Error('Course schedule not found');
   }
   try {
     await assertCanAccessBatch(req, batchDoc);

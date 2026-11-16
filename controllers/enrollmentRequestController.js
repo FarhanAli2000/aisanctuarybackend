@@ -6,6 +6,7 @@ const Batch = require('../models/Batch');
 const Course = require('../models/Course');
 const triggerN8n = require('../utils/triggerN8n');
 const { countBatchSeats } = require('../utils/queryHelpers');
+const { getCourseBatch } = require('../utils/courseBatch');
 const { requireAndVerifyIdCards, cleanupIdCardFiles } = require('../utils/idCardFiles');
 const {
   MAX_ACTIVE_ENROLLMENTS_PER_STUDENT,
@@ -43,7 +44,7 @@ const getOrCreateStudentProfile = async (req) => {
     guardianContact,
   } = req.body;
 
-  // A student can apply with just a course and batch. Address and ID photos are only handled
+  // A student can apply with just a course. Address and ID photos are only handled
   // when the client sends them (older forms still do).
   if (!address && !identityDocType) {
     profile = await StudentProfile.create({ user: req.user._id, enrollmentStatus: 'pending' });
@@ -108,10 +109,10 @@ const createEnrollmentRequest = asyncHandler(async (req, res) => {
     throw new Error('Only students can submit enrollment requests');
   }
 
-  const { course, batch } = req.body;
-  if (!course || !batch) {
+  const { course } = req.body;
+  if (!course) {
     res.status(400);
-    throw new Error('Course and batch are required');
+    throw new Error('Course is required');
   }
 
   let profile;
@@ -128,16 +129,15 @@ const createEnrollmentRequest = asyncHandler(async (req, res) => {
     throw new Error('Course not found or inactive');
   }
 
-  const batchDoc = await Batch.findById(batch);
-  if (!batchDoc || !batchDoc.isActive) {
-    res.status(404);
-    throw new Error('Batch not found or inactive');
+  // Students only choose the course; its class schedule record is found here.
+  let batchDoc;
+  try {
+    batchDoc = await getCourseBatch(course);
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
   }
-
-  if (String(batchDoc.course) !== String(course)) {
-    res.status(400);
-    throw new Error('Selected batch does not belong to this course');
-  }
+  const batch = batchDoc._id;
 
   const { occupied } = await countOccupiedSlots(profile._id);
   if (occupied >= MAX_ACTIVE_ENROLLMENTS_PER_STUDENT) {
@@ -170,7 +170,7 @@ const createEnrollmentRequest = asyncHandler(async (req, res) => {
   const batchEnrolledCount = await countBatchSeats(batch);
   if (batchEnrolledCount >= batchDoc.capacity) {
     res.status(400);
-    throw new Error('This batch is full. Please choose a different batch.');
+    throw new Error('This course is full.');
   }
 
   const request = await EnrollmentRequest.create({

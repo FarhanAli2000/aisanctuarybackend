@@ -6,15 +6,15 @@ const { createActiveEnrollment } = require('../utils/enrollStudent');
 const { getCycleRange } = require('../utils/feePeriod');
 const { countBatchSeats } = require('../utils/queryHelpers');
 
-// @desc    Enroll a student into a course/batch - Workflow: WF-02
+// @desc    Enroll a student into a course - Workflow: WF-02
 // @route   POST /api/enrollments
 // @access  Private/Admin
 const createEnrollment = asyncHandler(async (req, res) => {
   const { student, course, batch, courseDurationWeeks } = req.body;
 
-  if (!student || !course || !batch) {
+  if (!student || !course) {
     res.status(400);
-    throw new Error('Student, course, and batch are required');
+    throw new Error('Student and course are required');
   }
 
   try {
@@ -102,22 +102,22 @@ const updateEnrollment = asyncHandler(async (req, res) => {
   if (batch && String(batch) !== String(enrollment.batch)) {
     if (req.user.role !== 'admin') {
       res.status(403);
-      throw new Error('Only admin can change enrollment batch');
+      throw new Error('Only admin can change the class schedule');
     }
     const batchDoc = await Batch.findById(batch);
     if (!batchDoc || batchDoc.isActive === false) {
       res.status(404);
-      throw new Error('Batch not found or inactive');
+      throw new Error('Class schedule not found or inactive');
     }
     if (String(batchDoc.course) !== String(enrollment.course)) {
       res.status(400);
-      throw new Error('New batch must belong to the same course');
+      throw new Error('The new schedule must belong to the same course');
     }
     if (enrollment.status === 'active') {
       const batchEnrolledCount = await countBatchSeats(batch, enrollment._id);
       if (batchEnrolledCount >= batchDoc.capacity) {
         res.status(400);
-        throw new Error('Selected batch is full');
+        throw new Error('This course is full');
       }
     }
     enrollment.batch = batch;
@@ -136,7 +136,7 @@ const updateEnrollment = asyncHandler(async (req, res) => {
     const batchDoc = await Batch.findById(enrollment.batch);
     if (batchDoc && (await countBatchSeats(batchDoc._id, enrollment._id)) >= batchDoc.capacity) {
       res.status(400);
-      throw new Error('This batch is full. Choose a different batch before reactivating.');
+      throw new Error('This course is full, so this enrollment cannot be reactivated.');
     }
   }
 
