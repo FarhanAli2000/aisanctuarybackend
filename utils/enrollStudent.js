@@ -72,7 +72,8 @@ const createActiveEnrollment = async ({ studentId, courseId, batchId, courseDura
     expectedEndDate,
   });
 
-  if (['pending', 'completed'].includes(studentProfile.enrollmentStatus)) {
+  // A student who has just been enrolled in a class is active again (also when all earlier classes were dropped).
+  if (['pending', 'completed', 'inactive'].includes(studentProfile.enrollmentStatus)) {
     studentProfile.enrollmentStatus = 'active';
     await studentProfile.save();
   }
