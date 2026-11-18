@@ -29,12 +29,12 @@ const createActiveEnrollment = async ({ studentId, courseId, batchId, courseDura
   // Callers send just the course; its class schedule record is found here.
   const batchDoc = batchId ? await Batch.findById(batchId) : await getCourseBatch(courseId);
   if (!batchDoc || !batchDoc.isActive) {
-    throw httpError(404, 'This course has no active class schedule');
+    throw httpError(404, 'This class has no active schedule');
   }
   batchId = batchDoc._id;
 
   if (String(batchDoc.course) !== String(courseId)) {
-    throw httpError(400, 'Selected class schedule does not belong to this course');
+    throw httpError(400, 'Selected class schedule does not belong to this class');
   }
 
   const activeCount = await Enrollment.countDocuments({ student: studentId, status: 'active' });
@@ -47,7 +47,7 @@ const createActiveEnrollment = async ({ studentId, courseId, batchId, courseDura
 
   const batchEnrolledCount = await countBatchSeats(batchId);
   if (batchEnrolledCount >= batchDoc.capacity) {
-    throw httpError(400, 'This course is full.');
+    throw httpError(400, 'This class is full.');
   }
 
   const alreadyEnrolled = await Enrollment.findOne({
@@ -56,7 +56,7 @@ const createActiveEnrollment = async ({ studentId, courseId, batchId, courseDura
     status: 'active',
   });
   if (alreadyEnrolled) {
-    throw httpError(400, 'Student is already actively enrolled in this course');
+    throw httpError(400, 'Student is already actively enrolled in this class');
   }
 
   const duration = courseDurationWeeks || courseDoc.defaultDurationWeeks;

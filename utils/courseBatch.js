@@ -6,7 +6,7 @@ const Batch = require('../models/Batch');
 const getCourseBatch = async (courseId) => {
   const batch = await Batch.findOne({ course: courseId, isActive: true }).sort({ createdAt: 1 });
   if (!batch) {
-    const err = new Error('This course has no class schedule yet. Add the teacher and time on the Courses page first.');
+    const err = new Error('This class has no schedule yet. Add the teacher and time on the Classes page first.');
     err.statusCode = 400;
     throw err;
   }

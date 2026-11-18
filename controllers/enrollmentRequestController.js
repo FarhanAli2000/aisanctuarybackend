@@ -154,7 +154,7 @@ const createEnrollmentRequest = asyncHandler(async (req, res) => {
   });
   if (alreadyActive) {
     res.status(400);
-    throw new Error('You are already enrolled in this course');
+    throw new Error('You are already enrolled in this class');
   }
 
   const alreadyPending = await EnrollmentRequest.findOne({
@@ -164,13 +164,13 @@ const createEnrollmentRequest = asyncHandler(async (req, res) => {
   });
   if (alreadyPending) {
     res.status(400);
-    throw new Error('You already have a pending request for this course');
+    throw new Error('You already have a pending request for this class');
   }
 
   const batchEnrolledCount = await countBatchSeats(batch);
   if (batchEnrolledCount >= batchDoc.capacity) {
     res.status(400);
-    throw new Error('This course is full.');
+    throw new Error('This class is full.');
   }
 
   const request = await EnrollmentRequest.create({

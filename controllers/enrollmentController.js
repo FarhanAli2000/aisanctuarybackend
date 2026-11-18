@@ -14,7 +14,7 @@ const createEnrollment = asyncHandler(async (req, res) => {
 
   if (!student || !course) {
     res.status(400);
-    throw new Error('Student and course are required');
+    throw new Error('Student and class are required');
   }
 
   try {
@@ -111,13 +111,13 @@ const updateEnrollment = asyncHandler(async (req, res) => {
     }
     if (String(batchDoc.course) !== String(enrollment.course)) {
       res.status(400);
-      throw new Error('The new schedule must belong to the same course');
+      throw new Error('The new schedule must belong to the same class');
     }
     if (enrollment.status === 'active') {
       const batchEnrolledCount = await countBatchSeats(batch, enrollment._id);
       if (batchEnrolledCount >= batchDoc.capacity) {
         res.status(400);
-        throw new Error('This course is full');
+        throw new Error('This class is full');
       }
     }
     enrollment.batch = batch;
@@ -136,7 +136,7 @@ const updateEnrollment = asyncHandler(async (req, res) => {
     const batchDoc = await Batch.findById(enrollment.batch);
     if (batchDoc && (await countBatchSeats(batchDoc._id, enrollment._id)) >= batchDoc.capacity) {
       res.status(400);
-      throw new Error('This course is full, so this enrollment cannot be reactivated.');
+      throw new Error('This class is full, so this enrollment cannot be reactivated.');
     }
   }
 

@@ -34,7 +34,7 @@ const assertCanAccessBatch = async (req, batch) => {
   if (req.user.role === 'teacher') {
     const teacherId = await getTeacherProfileId(req.user);
     if (String(batch.teacher) !== String(teacherId)) {
-      const err = new Error('Not authorized to access this course');
+      const err = new Error('Not authorized to access this class');
       err.statusCode = 403;
       throw err;
     }
@@ -240,7 +240,7 @@ const saveSessionAttendance = asyncHandler(async (req, res) => {
     });
     if (!enrollment) {
       res.status(400);
-      throw new Error('Student is not actively enrolled in this course');
+      throw new Error('Student is not actively enrolled in this class');
     }
 
     const record = await Attendance.findOneAndUpdate(
