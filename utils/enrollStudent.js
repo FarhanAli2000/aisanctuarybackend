@@ -72,7 +72,7 @@ const createActiveEnrollment = async ({ studentId, courseId, batchId, courseDura
     expectedEndDate,
   });
 
-  if (studentProfile.enrollmentStatus === 'pending') {
+  if (['pending', 'completed'].includes(studentProfile.enrollmentStatus)) {
     studentProfile.enrollmentStatus = 'active';
     await studentProfile.save();
   }
