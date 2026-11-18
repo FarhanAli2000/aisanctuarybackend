@@ -4,6 +4,9 @@ const TeacherProfile = require('../models/TeacherProfile');
 const Course = require('../models/Course');
 const Batch = require('../models/Batch');
 const Enrollment = require('../models/Enrollment');
+const ClassSession = require('../models/ClassSession');
+const Attendance = require('../models/Attendance');
+const AttendanceStatusType = require('../models/AttendanceStatusType');
 const { getLowAttendanceAlerts, getAlertThreshold } = require('../utils/attendanceStats');
 const { SEAT_FREE_STUDENT_STATUSES } = require('../utils/queryHelpers');
 
@@ -481,4 +484,57 @@ const getStudentsByCoursePeriod = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { range, from: dayKey(start), to: dayKey(end), courses: rows } });
 });
 
-module.exports = { getDashboardSummary, getEnrollmentTrend, getStudentsByCoursePeriod };
+// @desc    Attendance percentage per course in a chosen period (range=current means this month)
+// @route   GET /api/dashboard/attendance-by-course?range=current|7d|30d|90d|6m|12m|ytd|custom&from=&to=
+// @access  Private/Admin,Founder
+// Same rule as the rest of the app: present = 1, leave = half, absent = 0. Courses with no marked class show null.
+const getAttendanceByCourse = asyncHandler(async (req, res) => {
+  const range = req.query.range === 'current' ? 'current' : RANGE_KEYS.includes(req.query.range) ? req.query.range : '30d';
+  let period;
+  if (range === 'current') {
+    const today = pktDayOf(new Date());
+    period = { start: monthStartDay(today, 0), end: today };
+  } else {
+    period = resolveTrendPeriod(range, req.query.from, req.query.to);
+  }
+  if (period.error) {
+    res.status(400);
+    throw new Error(period.error);
+  }
+  const { start, end } = period;
+
+  const [courses, batches, sessions, statuses] = await Promise.all([
+    Course.find({}).select('title').lean(),
+    Batch.find({}).select('course').lean(),
+    ClassSession.find({ sessionDate: { $gte: dayKey(start), $lte: dayKey(end) } }).select('batch').lean(),
+    AttendanceStatusType.find({}).select('code').lean(),
+  ]);
+  const codeOf = new Map(statuses.map((st) => [String(st._id), st.code]));
+  const courseOfBatch = new Map(batches.map((b) => [String(b._id), String(b.course)]));
+  const courseOfSession = new Map(sessions.map((se) => [String(se._id), courseOfBatch.get(String(se.batch))]));
+  const records = sessions.length
+    ? await Attendance.find({ session: { $in: sessions.map((se) => se._id) } }).select('session status').lean()
+    : [];
+
+  const totals = new Map();
+  records.forEach((r) => {
+    const course = courseOfSession.get(String(r.session));
+    if (!course) return;
+    const t = totals.get(course) || { total: 0, present: 0 };
+    t.total += 1;
+    const code = codeOf.get(String(r.status));
+    if (code === 'present') t.present += 1;
+    else if (code === 'leave') t.present += 0.5;
+    totals.set(course, t);
+  });
+  const rows = courses
+    .map((c) => {
+      const t = totals.get(String(c._id));
+      return { courseTitle: c.title, percent: t && t.total ? Math.round((t.present / t.total) * 1000) / 10 : null, marks: t ? t.total : 0 };
+    })
+    .sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1) || a.courseTitle.localeCompare(b.courseTitle));
+
+  res.json({ success: true, data: { range, from: dayKey(start), to: dayKey(end), courses: rows } });
+});
+
+module.exports = { getDashboardSummary, getEnrollmentTrend, getStudentsByCoursePeriod, getAttendanceByCourse };
