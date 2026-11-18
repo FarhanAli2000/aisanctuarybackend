@@ -444,4 +444,34 @@ const getEnrollmentTrend = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { getDashboardSummary, getEnrollmentTrend };
+// @desc    Admissions per course in a chosen period (students who joined each course in that period)
+// @route   GET /api/dashboard/students-by-course?range=7d|30d|90d|6m|12m|ytd|custom&from=&to=
+// @access  Private/Admin,Founder
+const getStudentsByCoursePeriod = asyncHandler(async (req, res) => {
+  const range = RANGE_KEYS.includes(req.query.range) ? req.query.range : '30d';
+  const period = resolveTrendPeriod(range, req.query.from, req.query.to);
+  if (period.error) {
+    res.status(400);
+    throw new Error(period.error);
+  }
+  const { start, end } = period;
+  const windowStart = dayToInstant(start);
+  const windowEnd = dayToInstant(end + DAY_MS - 1);
+  const inWindow = (field) => ({ [field]: { $gte: windowStart, $lte: windowEnd } });
+
+  const [courses, enrollments] = await Promise.all([
+    Course.find({}).select('title').lean(),
+    Enrollment.find({ $or: [inWindow('enrolledAt'), { enrolledAt: { $exists: false }, ...inWindow('createdAt') }] })
+      .select('course')
+      .lean(),
+  ]);
+  const counts = new Map();
+  enrollments.forEach((e) => counts.set(String(e.course), (counts.get(String(e.course)) || 0) + 1));
+  const rows = courses
+    .map((c) => ({ courseTitle: c.title, count: counts.get(String(c._id)) || 0 }))
+    .sort((a, b) => b.count - a.count || a.courseTitle.localeCompare(b.courseTitle));
+
+  res.json({ success: true, data: { range, from: dayKey(start), to: dayKey(end), courses: rows } });
+});
+
+module.exports = { getDashboardSummary, getEnrollmentTrend, getStudentsByCoursePeriod };
