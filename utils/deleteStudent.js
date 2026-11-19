@@ -5,11 +5,15 @@ const EnrollmentRequest = require('../models/EnrollmentRequest');
 const Fee = require('../models/Fee');
 const Attendance = require('../models/Attendance');
 const CommunicationLog = require('../models/CommunicationLog');
+const StudentEvaluation = require('../models/StudentEvaluation');
+const StudentPlacement = require('../models/StudentPlacement');
 
 const deleteStudentByProfile = async (student) => {
   const studentId = student._id;
   const userId = student.user?._id || student.user;
 
+  await StudentEvaluation.deleteMany({ student: studentId });
+  await StudentPlacement.deleteMany({ student: studentId });
   await Attendance.deleteMany({ student: studentId });
   await Fee.deleteMany({ student: studentId });
   await Enrollment.deleteMany({ student: studentId });

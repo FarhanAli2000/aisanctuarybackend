@@ -18,6 +18,7 @@ const feeRoutes = require('./routes/feeRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
 const communicationRoutes = require('./routes/communicationRoutes');
 const aiNewsRoutes = require('./routes/aiNewsRoutes');
+const performanceRoutes = require('./routes/performanceRoutes');
 const { startAiNewsScheduler } = require('./utils/aiNewsDigest');
 
 connectDB();
@@ -68,6 +69,7 @@ app.use('/api/fees', feeRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/communication-logs', communicationRoutes);
 app.use('/api/ai-news', aiNewsRoutes);
+app.use('/api/performance', performanceRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
