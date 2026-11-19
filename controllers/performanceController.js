@@ -153,19 +153,20 @@ const buildRows = async (studentIds, { teacher = null, withHistory = false } = {
   });
 };
 
-// Which student profiles may this user see?
+// Which student profiles may this user see? Only students who have completed at least one class.
+// Teachers see those of them who are (or were) in one of their own classes.
 const visibleStudentIds = async (user) => {
+  const completed = (await Enrollment.distinct('student', { status: 'completed' })).map(String);
   if (user.role === 'teacher') {
     const teacher = await myTeacherProfile(user);
     if (!teacher) return { teacher: null, ids: [] };
-    const ids = await Enrollment.distinct('student', { teacher: teacher._id });
-    return { teacher, ids };
+    const mine = (await Enrollment.distinct('student', { teacher: teacher._id })).map(String);
+    return { teacher, ids: mine.filter((id) => completed.includes(id)) };
   }
-  const ids = await StudentProfile.find().distinct('_id');
-  return { teacher: null, ids };
+  return { teacher: null, ids: completed };
 };
 
-// @desc    Performance of every student (teachers: their own students)
+// @desc    Performance of students who completed at least one class (teachers: their own students)
 // @route   GET /api/performance
 // @access  Private/Admin, Founder, Teacher
 const getPerformance = asyncHandler(async (req, res) => {
