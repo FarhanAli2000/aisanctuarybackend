@@ -7,6 +7,7 @@ const Attendance = require('../models/Attendance');
 const CommunicationLog = require('../models/CommunicationLog');
 const StudentEvaluation = require('../models/StudentEvaluation');
 const StudentPlacement = require('../models/StudentPlacement');
+const TripApplication = require('../models/TripApplication');
 
 const deleteStudentByProfile = async (student) => {
   const studentId = student._id;
@@ -14,6 +15,7 @@ const deleteStudentByProfile = async (student) => {
 
   await StudentEvaluation.deleteMany({ student: studentId });
   await StudentPlacement.deleteMany({ student: studentId });
+  await TripApplication.deleteMany({ student: studentId });
   await Attendance.deleteMany({ student: studentId });
   await Fee.deleteMany({ student: studentId });
   await Enrollment.deleteMany({ student: studentId });
